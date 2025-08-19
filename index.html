@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Merge Jewels</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: darkblue;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+}
+h1 { margin-bottom: 10px; }
+#grid {
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  grid-template-rows: repeat(3, 80px);
+  gap: 5px;
+  margin-bottom: 15px;
+  touch-action: none;
+}
+.cell {
+  width: 80px;
+  height: 80px;
+  background: #222;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+.gem {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  position: absolute;
+  transition: transform 0.2s ease;
+  touch-action: none;
+  z-index: 1;
+  user-select: none;
+}
+#money { font-size: 20px; margin-bottom: 10px; }
+#shop, #boxes { margin-top: 15px; }
+.shop-button {
+  border: none;
+  padding: 10px;
+  margin: 5px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: filter 0.2s ease;
+}
+.shop-button:hover { filter: brightness(1.2); }
+.message { margin-top: 10px; color: #f55; min-height: 20px; }
+#timer { margin-top:5px; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Merge Jewels</h1>
+<div id="money">Money: $0</div>
+<div id="grid"></div>
+
+<div id="boxes">
+  <button class="shop-button" id="openBoxButton">Open Box</button>
+  <div>Boxes: <span id="boxCount">9</span></div>
+  <div id="timer">Next box in: 60s</div>
+</div>
+
+<div id="shop">
+  <h3>Buy Specific Gems</h3>
+  <div id="gemShop"></div>
+</div>
+
+<div class="message" id="message"></div>
+
+<script>
+/* ---------- Data ---------- */
+const gems = [
+  {name:'Coal', color:'black', moneyPer5s:50, shopPrice:50*50},
+  {name:'Quartz', color:'lightpink', moneyPer5s:100, shopPrice:100*50},
+  {name:'Moonstone', color:'white', moneyPer5s:300, shopPrice:300*50},
+  {name:'Amber', color:'gold', moneyPer5s:500, shopPrice:500*50},
+  {name:'Chrysoberyl', color:'palegoldenrod', moneyPer5s:1000, shopPrice:1000*50},
+  {name:'Jade', color:'mediumseagreen', moneyPer5s:2000, shopPrice:2000*50},
+  {name:'Peridot', color:'limegreen', moneyPer5s:3000, shopPrice:3000*50},
+  {name:'Turquoise', color:'teal', moneyPer5s:10000, shopPrice:10000*50},
+  {name:'Citrine', color:'yellow', moneyPer5s:20000, shopPrice:20000*50},
+  {name:'Spinel', color:'pink', moneyPer5s:50000, shopPrice:50000*50},
+  {name:'Topaz', color:'orange', moneyPer5s:100000, shopPrice:100000*50},
+  {name:'Lapis Lazuli', color:'mediumblue', moneyPer5s:300000, shopPrice:300000*50},
+  {name:'Amethyst', color:'purple', moneyPer5s:500000, shopPrice:500000*50},
+  {name:'Garnet', color:'darkred', moneyPer5s:750000, shopPrice:750000*50},
+  {name:'Opal', color:'lightgray', moneyPer5s:1000000, shopPrice:1000000*50},
+  {name:'Aquamarine', color:'lightblue', moneyPer5s:3000000, shopPrice:3000000*50},
+  {name:'Sapphire', color:'blue', moneyPer5s:10000000, shopPrice:10000000*50},
+  {name:'Ruby', color:'red', moneyPer5s:25000000, shopPrice:25000000*50},
+  {name:'Emerald', color:'green', moneyPer5s:100000000, shopPrice:100000000*50},
+  {name:'Onyx', color:'darkgray', moneyPer5s:1000000000, shopPrice:1000000000*50}
+];
+
+let money = 0;
+let grid = Array(9).fill(null);
+let unlockedGems = ['Coal','Quartz'];
+let boxCount = 9;
+let boxTimer = 60; // 1 minute
+
+/* ---------- DOM ---------- */
+const gridEl = document.getElementById('grid');
+const moneyEl = document.getElementById('money');
+const messageEl = document.getElementById('message');
+const boxCountEl = document.getElementById('boxCount');
+const gemShopEl = document.getElementById('gemShop');
+const timerEl = document.getElementById('timer');
+const openBoxButton = document.getElementById('openBoxButton');
+
+/* ---------- Helpers ---------- */
+function updateMoney(){ moneyEl.textContent = `Money: $${Math.floor(money)}`; }
+function saveGame(){
+  try{
+    const save = {
+      money,
+      grid: grid.map(g => g ? g.name : null),
+      unlockedGems: unlockedGems.slice(),
+      boxCount,
+      boxTimer,
+      lastSave: Date.now()
+    };
+    localStorage.setItem('mergeJewelsSave', JSON.stringify(save));
+  } catch(e){
+    console.warn('Save failed', e);
+  }
+}
+function loadGame(){
+  try{
+    const raw = localStorage.getItem('mergeJewelsSave');
+    if(!raw) return;
+    const save = JSON.parse(raw);
+    if(!save) return;
+    money = typeof save.money === 'number' ? save.money : money;
+    if(Array.isArray(save.grid)){
+      grid = save.grid.map(name => {
+        if(!name) return null;
+        return gems.find(g=>g.name===name) || null;
+      });
+    }
+    if(Array.isArray(save.unlockedGems)) unlockedGems = save.unlockedGems.slice();
+    if(typeof save.boxCount === 'number') boxCount = save.boxCount;
+
+    // restore timer + offline catch-up
+    if(save.lastSave){
+      let elapsed = Math.floor((Date.now() - save.lastSave)/1000);
+      boxTimer = save.boxTimer ?? 60;
+
+      // catch up boxes
+      while(elapsed >= 60){
+        boxCount++;
+        elapsed -= 60;
+      }
+      boxTimer = Math.max(boxTimer - elapsed, 1);
+
+      // offline earnings (5% of normal)
+      let totalRate = 0;
+      grid.forEach(g=>{
+        if(g) totalRate += g.moneyPer5s;
+      });
+      let ticks = Math.floor(elapsed / 5);
+      let offlineIncome = ticks * totalRate * 0.05;
+      money += offlineIncome;
+      if(offlineIncome > 0){
+        alert(`You earned $${Math.floor(offlineIncome)} while offline!`);
+      }
+    }
+    boxCountEl.textContent = boxCount; // restore counter
+  } catch(e){
+    console.warn('Load failed', e);
+  }
+}
+
+/* ---------- Grid UI ---------- */
+function createGrid(){
+  gridEl.innerHTML = '';
+  for(let i=0;i<9;i++){
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.index = i;
+    gridEl.appendChild(cell);
+  }
+  drawGrid();
+}
+function drawGrid(){
+  for(let i=0;i<9;i++){
+    const cell = gridEl.children[i];
+    cell.innerHTML = '';
+    if(grid[i]){
+      const gemDiv = document.createElement('div');
+      gemDiv.className = 'gem';
+      gemDiv.style.background = grid[i].color;
+      gemDiv.dataset.index = i;
+      gemDiv.title = grid[i].name;
+      attachDragHandlers(gemDiv);
+      cell.appendChild(gemDiv);
+    }
+  }
+}
+
+/* ---------- Dragging ---------- */
+function attachDragHandlers(gemDiv){
+  let draggingGem = null;
+  let dragIndex = null;
+  let startX = 0, startY = 0;
+  let moved = false;
+
+  function finalizeDrop(screenX, screenY){
+    let dropIndex = null;
+    for(let j=0;j<9;j++){
+      const c = gridEl.children[j];
+      const rect = c.getBoundingClientRect();
+      if(screenX > rect.left && screenX < rect.right && screenY > rect.top && screenY < rect.bottom){
+        dropIndex = j;
+        break;
+      }
+    }
+
+    if(dropIndex !== null &&
+       dragIndex !== null &&
+       dropIndex !== dragIndex &&
+       grid[dropIndex] &&
+       draggingGem &&
+       grid[dropIndex].name === draggingGem.name){
+      const gemIndex = gems.findIndex(g => g.name === draggingGem.name);
+      const nextIndex = Math.min(gemIndex + 1, gems.length - 1);
+      const nextGem = gems[nextIndex];
+      grid[dropIndex] = nextGem;
+      if(!unlockedGems.includes(nextGem.name)) unlockedGems.push(nextGem.name);
+      grid[dragIndex] = null;
+      messageEl.textContent = `Merged into ${nextGem.name}!`;
+      saveGame();
+    } else {
+      messageEl.textContent = '';
+    }
+
+    drawGrid();
+    generateShop();
+  }
+
+  // Touch
+  gemDiv.addEventListener('touchstart', e=>{
+    const i = parseInt(gemDiv.dataset.index, 10);
+    draggingGem = grid[i];
+    dragIndex = i;
+    moved = false;
+    const touch = e.touches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+    gemDiv.style.transition = 'none';
+    gemDiv.style.zIndex = 1000;
+  }, {passive:true});
+
+  gemDiv.addEventListener('touchmove', e=>{
+    if(!draggingGem) return;
+    const touch = e.touches[0];
+    moved = true;
+    gemDiv.style.transform = `translate(${touch.clientX - startX}px, ${touch.clientY - startY}px)`;
+  }, {passive:true});
+
+  gemDiv.addEventListener('touchend', e=>{
+    if(!draggingGem) return;
+    if(!moved){
+      gemDiv.style.transform = '';
+      gemDiv.style.zIndex = '';
+      draggingGem = null; dragIndex = null;
+      return;
+    }
+    const touch = e.changedTouches[0];
+    finalizeDrop(touch.clientX, touch.clientY);
+    draggingGem = null; dragIndex = null;
+  });
+
+  // Mouse
+  function onMouseMove(e){
+    if(!draggingGem) return;
+    moved = true;
+    gemDiv.style.transform = `translate(${e.clientX - startX}px, ${e.clientY - startY}px)`;
+  }
+  function onMouseUp(e){
+    if(!draggingGem) return;
+    if(!moved){
+      gemDiv.style.transform = '';
+      gemDiv.style.zIndex = '';
+      draggingGem = null; dragIndex = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      return;
+    }
+    finalizeDrop(e.clientX, e.clientY);
+    draggingGem = null; dragIndex = null;
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+  }
+
+  gemDiv.addEventListener('mousedown', e=>{
+    e.preventDefault();
+    const i = parseInt(gemDiv.dataset.index, 10);
+    draggingGem = grid[i];
+    dragIndex = i;
+    moved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    gemDiv.style.transition = 'none';
+    gemDiv.style.zIndex = 1000;
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  });
+}
+
+/* ---------- Money tick ---------- */
+function moneyPer5s(){
+  let total = 0;
+  grid.forEach(g=>{
+    if(g) total += g.moneyPer5s;
+  });
+  money += total;
+  updateMoney();
+}
+
+/* ---------- Boxes ---------- */
+function openBox(){
+  if(boxCount <= 0){ messageEl.textContent = "No boxes left!"; return; }
+  const emptyIndexes = grid.map((g,i)=>g===null?i:null).filter(i=>i!==null);
+  if(emptyIndexes.length===0){ messageEl.textContent="No open spaces!"; return; }
+  const gemName = unlockedGems[Math.floor(Math.random()*unlockedGems.length)];
+  const gem = gems.find(g=>g.name===gemName);
+  const placeIdx = emptyIndexes[Math.floor(Math.random()*emptyIndexes.length)];
+  grid[placeIdx] = gem;
+  drawGrid();
+  boxCount--;
+  boxCountEl.textContent = boxCount;
+  messageEl.textContent = '';
+  saveGame();
+}
+openBoxButton.addEventListener('click', openBox);
+
+/* ---------- Shop ---------- */
+function generateShop(){
+  gemShopEl.innerHTML = '';
+  unlockedGems.forEach(name=>{
+    const gem = gems.find(g=>g.name===name);
+    if(!gem) return;
+    const btn = document.createElement('button');
+    btn.className = 'shop-button';
+    btn.textContent = `Buy ${gem.name} ($${gem.shopPrice})`;
+    btn.style.background = gem.color;
+    const darkColors = ['black','darkred','darkgray','blue','teal','mediumblue','purple','red','green','darkblue'];
+    btn.style.color = darkColors.includes(gem.color) ? '#fff' : '#000';
+    btn.onclick = ()=>{
+      const emptyIndexes = grid.map((g,i)=>g===null?i:null).filter(i=>i!==null);
+      if(emptyIndexes.length===0){ messageEl.textContent="No open spaces!"; return; }
+      if(money < gem.shopPrice){ messageEl.textContent="Not enough money!"; return; }
+      const placeIdx = emptyIndexes[Math.floor(Math.random()*emptyIndexes.length)];
+      grid[placeIdx] = gem;
+      drawGrid();
+      money -= gem.shopPrice;
+      updateMoney();
+      messageEl.textContent = '';
+      saveGame();
+    };
+    gemShopEl.appendChild(btn);
+  });
+}
+
+/* ---------- Box timer ---------- */
+setInterval(()=>{
+  boxTimer--;
+  if(boxTimer <= 0){
+    boxCount++;
+    boxCountEl.textContent = boxCount;
+    boxTimer = 60;
+    messageEl.textContent = "A new box dropped!";
+    saveGame();
+  }
+  timerEl.textContent = `Next box in: ${boxTimer}s`;
+}, 1000);
+
+/* ---------- Autosave ---------- */
+setInterval(()=>{ saveGame(); }, 10000);
+window.addEventListener('beforeunload', saveGame);
+
+/* ---------- Init ---------- */
+loadGame();
+updateMoney();
+createGrid();
+generateShop();
+setInterval(moneyPer5s, 5000);
+</script>
+</body>
+</html>
